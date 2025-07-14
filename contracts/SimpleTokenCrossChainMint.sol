@@ -233,10 +233,10 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
         return 0; // Unknown chain
     }
 
-    // ========== CROSS-CHAIN TRANSFER (UNCHANGED) ==========
-    function transferToChain(uint32 _dstEid, address _to, uint256 _amount) external payable {
+    // ========== CROSS-CHAIN TRANSFER (SOULBOUND) ==========
+    function transferToChain(uint32 _dstEid, uint256 _amount) external payable {
         if (!crossChainEnabled) revert PoolDisabled();
-        if (_to == address(0)) revert InvalidAddress();
+        // if (_to == address(0)) revert InvalidAddress();
         if (_amount == 0) revert InvalidAmount();
         if (balanceOf(msg.sender) < _amount) revert InsufficientPayment();
 
@@ -244,7 +244,7 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
 
         ActionData memory action = ActionData({
             actionType: ActionType.MintTokensForBurn,
-            account: _to,
+            account: msg.sender, // Always transfer to the same wallet
             amount: _amount
         });
 
@@ -257,7 +257,7 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
 
         _lzSend(_dstEid, message, options, MessagingFee(fee.nativeFee, 0), payable(msg.sender));
         
-        emit CrossChainTransfer(msg.sender, _to, _amount, _dstEid);
+        emit CrossChainTransfer(msg.sender, msg.sender, _amount, _dstEid);
     }
 
     // ========== ADMIN FUNCTIONS (UNCHANGED) ==========

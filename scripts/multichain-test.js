@@ -230,7 +230,7 @@ async function main() {
                 
                 const tx = await currentContract.connect(user1).transferToChain(
                     targetEID,
-                    user1.address, // Send to same address on target chain
+                    // user1.address, // Send to same address on target chain
                     transferAmount,
                     { value: transferFee }
                 );

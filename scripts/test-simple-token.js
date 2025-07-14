@@ -575,7 +575,7 @@ async function main() {
             
             const tx = await contract.connect(user2).transferToChain(
                 OPTIMISM_EID,
-                user3.address,
+                // user3.address,
                 transferAmount,
                 { value: transferFee }
             );

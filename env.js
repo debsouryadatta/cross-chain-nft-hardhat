@@ -1,3 +1,5 @@
+require("dotenv").config();
+
 const env = {
     // Account details (to be moved to .env)
     ADMIN_WALLET_ADDRESS: process.env.ADMIN_WALLET_ADDRESS, // Your wallet address
