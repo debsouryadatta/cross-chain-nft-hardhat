@@ -138,6 +138,9 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
 
     // ========== CROSS-CHAIN MINT SYNC ==========
     function _syncMintStatus(address _user, uint8 _poolId, uint32 _srcEid) internal {
+        if (_poolId < 1 || _poolId > MAX_POOLS) revert InvalidPoolId();
+        if (_user == address(0)) revert InvalidAddress();
+        
         // Increment the user's mint count for this pool
         mintCountPerPool[_poolId][_user] += 1;
         
@@ -151,6 +154,9 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
     }
 
     function _notifyOtherChains(address _user, uint8 _poolId) internal {
+        if (_user == address(0)) return;
+        if (_poolId < 1 || _poolId > MAX_POOLS) return;
+        
         // Send message to all configured peer chains
         for (uint32 i = 1; i <= 2; i++) { // Assuming 2 chains for now
             uint32 dstEid;
@@ -190,6 +196,7 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
         if (_poolId < 1 || _poolId > MAX_POOLS) revert InvalidPoolId();
         for (uint256 i; i < _accounts.length; i++) {
             address acc = _accounts[i];
+            if (acc == address(0)) revert InvalidAddress();
             whitelist[_poolId][acc] = _status;
             emit WhitelistUpdated(_poolId, acc, _status);
         }
@@ -329,6 +336,7 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
     // setPeer function is inherited from OAppCore
 
     function resetUserMint(address _user) external onlyOwner {
+        if (_user == address(0)) revert InvalidAddress();
         hasMintedGlobal[_user] = false;
         mintedOnChain[_user] = 0;
         for (uint8 i = 1; i <= MAX_POOLS; i++) {
@@ -339,6 +347,7 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
     // NEW: Reset user mint for specific pool
     function resetUserMintForPool(address _user, uint8 _poolId) external onlyOwner {
         if (_poolId < 1 || _poolId > MAX_POOLS) revert InvalidPoolId();
+        if (_user == address(0)) revert InvalidAddress();
         mintCountPerPool[_poolId][_user] = 0;
     }
 
@@ -384,7 +393,7 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
     }
 
     // ========== RECEIVE FUNCTION ==========
-    receive() external payable {
+    receive() external payable nonReentrant {
         if (msg.value > 0 && mintingEnabled) {
             // Try to mint from pool 1 if conditions are met
             if (pools[1].enabled && mintCountPerPool[1][msg.sender] < pools[1].maxMintsPerWallet && 
