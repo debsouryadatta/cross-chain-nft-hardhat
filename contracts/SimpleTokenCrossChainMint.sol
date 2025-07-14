@@ -2,8 +2,10 @@
 pragma solidity ^0.8.22;
 
 /**
- * @title SimpleTokenCrossChainMint - Multi-Pool Cross-Chain Token with Global Mint Restriction
- * @notice ONE-MINT-PER-ADDRESS GLOBALLY across all chains. If user mints on Linea, cannot mint on Optimism and vice versa.
+ * @title SimpleTokenCrossChainMint - Multi-Pool Cross-Chain Token with Per-Pool Mint Restrictions
+ * @notice Different mint limits per pool type across all chains:
+ *         - Pools 1-2 (Freemint & Whitelist GTD): 1 NFT per wallet globally
+ *         - Pools 3-4 (Whitelist FCFS & Public): 2 NFTs per wallet globally
  * @dev Uses LayerZero to synchronize mint status across chains
  */
 
@@ -23,6 +25,7 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
         uint256 maxSupply;
         uint256 mintPrice;
         uint256 totalMinted;
+        uint256 maxMintsPerWallet;
         bool enabled;
     }
 
@@ -36,6 +39,7 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
         ActionType actionType;
         address account;
         uint256 amount;
+        uint8 poolId;
     }
 
     // ========== EVENTS ==========
@@ -44,7 +48,7 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
     event AllPoolsStatusChanged(bool enabled);
     event CrossChainTransfer(address indexed from, address indexed to, uint256 amount, uint32 dstEid);
     event WhitelistUpdated(uint8 indexed poolId, address indexed account, bool status);
-    event CrossChainMintSynced(address indexed user, uint32 indexed srcEid); // NEW EVENT
+    event CrossChainMintSynced(address indexed user, uint8 indexed poolId, uint32 indexed srcEid); // UPDATED EVENT
 
     // ========== ERRORS ==========
     error InvalidPoolId();
@@ -52,6 +56,7 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
     error PoolFull();
     error InsufficientPayment();
     error AlreadyMinted();
+    error MintLimitExceeded();
     error NotWhitelisted();
     error InvalidAmount();
     error InvalidAddress();
@@ -62,9 +67,9 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
 
     mapping(uint8 => PoolInfo) public pools;
     mapping(uint8 => mapping(address => bool)) public whitelist;
-    mapping(uint8 => mapping(address => bool)) public hasMintedPerPool;
-    mapping(address => bool) public hasMintedGlobal; // This will be synced across chains
-    mapping(address => uint32) public mintedOnChain; // NEW: Track which chain user minted on
+    mapping(uint8 => mapping(address => uint256)) public mintCountPerPool; // UPDATED: Track mint count per pool per user
+    mapping(address => bool) public hasMintedGlobal;
+    mapping(address => uint32) public mintedOnChain; // Track which chain user first minted on
 
     bool public mintingEnabled = true;
     bool public crossChainEnabled = true;
@@ -85,10 +90,13 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
         
         for (uint8 i = 0; i < MAX_POOLS; i++) {
             uint8 poolId = i + 1;
+            uint256 maxMints = (poolId <= 2) ? 1 : 2;
+            
             pools[poolId] = PoolInfo({
                 maxSupply: _maxSupplies[i] * (10 ** decimals()),
                 mintPrice: _mintPrices[i],
                 totalMinted: 0,
+                maxMintsPerWallet: maxMints,
                 enabled: false
             });
             totalMaxSupply += pools[poolId].maxSupply;
@@ -123,21 +131,26 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
         } else if (action.actionType == ActionType.BurnTokensForMint) {
             _burn(action.account, action.amount);
         } else if (action.actionType == ActionType.SyncMintStatus) {
-            // NEW: Handle cross-chain mint status synchronization
-            _syncMintStatus(action.account, _origin.srcEid);
+            // Handle cross-chain mint status synchronization
+            _syncMintStatus(action.account, action.poolId, _origin.srcEid);
         }
     }
 
-    // ========== NEW: CROSS-CHAIN MINT SYNC ==========
-    function _syncMintStatus(address _user, uint32 _srcEid) internal {
-        // Mark user as having minted globally
-        hasMintedGlobal[_user] = true;
-        mintedOnChain[_user] = _srcEid;
+    // ========== CROSS-CHAIN MINT SYNC ==========
+    function _syncMintStatus(address _user, uint8 _poolId, uint32 _srcEid) internal {
+        // Increment the user's mint count for this pool
+        mintCountPerPool[_poolId][_user] += 1;
         
-        emit CrossChainMintSynced(_user, _srcEid);
+        // Update global tracking
+        if (!hasMintedGlobal[_user]) {
+            hasMintedGlobal[_user] = true;
+            mintedOnChain[_user] = _srcEid;
+        }
+        
+        emit CrossChainMintSynced(_user, _poolId, _srcEid);
     }
 
-    function _notifyOtherChains(address _user) internal {
+    function _notifyOtherChains(address _user, uint8 _poolId) internal {
         // Send message to all configured peer chains
         for (uint32 i = 1; i <= 2; i++) { // Assuming 2 chains for now
             uint32 dstEid;
@@ -150,7 +163,8 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
             ActionData memory action = ActionData({
                 actionType: ActionType.SyncMintStatus,
                 account: _user,
-                amount: 0
+                amount: 0,
+                poolId: _poolId
             });
             
             bytes memory message = abi.encode(action);
@@ -181,11 +195,12 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
         }
     }
 
-    // ========== MINT WITH CROSS-CHAIN SYNC ==========
+    // ========== MINT WITH PER-POOL LIMITS ==========
     function mintFromPool(uint8 _poolId) external payable nonReentrant {
         if (_poolId < 1 || _poolId > MAX_POOLS) revert InvalidPoolId();
         if (!mintingEnabled || !pools[_poolId].enabled) revert PoolDisabled();
-        if (hasMintedGlobal[msg.sender]) revert AlreadyMinted();
+        if (mintCountPerPool[_poolId][msg.sender] >= pools[_poolId].maxMintsPerWallet) revert MintLimitExceeded();
+        
         if (_poolId <= 3 && !whitelist[_poolId][msg.sender]) revert NotWhitelisted();
 
         PoolInfo storage pool = pools[_poolId];
@@ -198,12 +213,13 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
 
         // Update state
         pool.totalMinted += mintAmount;
-        hasMintedPerPool[_poolId][msg.sender] = true;
-        hasMintedGlobal[msg.sender] = true;
+        mintCountPerPool[_poolId][msg.sender] += 1;
         
-        // NEW: Record which chain this user minted on
-        uint32 currentChainEid = _getCurrentChainEid();
-        mintedOnChain[msg.sender] = currentChainEid;
+        // Update global tracking for first mint
+        if (!hasMintedGlobal[msg.sender]) {
+            hasMintedGlobal[msg.sender] = true;
+            mintedOnChain[msg.sender] = _getCurrentChainEid();
+        }
 
         // Refund surplus ETH before minting
         uint256 refundAmount = 0;
@@ -221,8 +237,8 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
 
         emit PoolMinted(msg.sender, _poolId, mintAmount, block.timestamp);
         
-        // NEW: Notify other chains about this mint
-        _notifyOtherChains(msg.sender);
+        // Notify other chains about this mint
+        _notifyOtherChains(msg.sender, _poolId);
     }
 
     // ========== HELPER FUNCTIONS ==========
@@ -245,7 +261,8 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
         ActionData memory action = ActionData({
             actionType: ActionType.MintTokensForBurn,
             account: msg.sender, // Always transfer to the same wallet
-            amount: _amount
+            amount: _amount,
+            poolId: 0 // Not used for transfers
         });
 
         bytes memory message = abi.encode(action);
@@ -260,7 +277,7 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
         emit CrossChainTransfer(msg.sender, msg.sender, _amount, _dstEid);
     }
 
-    // ========== ADMIN FUNCTIONS (UNCHANGED) ==========
+    // ========== ADMIN FUNCTIONS ==========
     function enablePool(uint8 _poolId) external onlyOwner {
         if (_poolId < 1 || _poolId > MAX_POOLS) revert InvalidPoolId();
         pools[_poolId].enabled = true;
@@ -292,6 +309,11 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
         pools[_poolId].mintPrice = _newPrice;
     }
 
+    function setPoolMintLimit(uint8 _poolId, uint256 _maxMints) external onlyOwner {
+        if (_poolId < 1 || _poolId > MAX_POOLS) revert InvalidPoolId();
+        pools[_poolId].maxMintsPerWallet = _maxMints;
+    }
+
     function setMintingEnabled(bool _enabled) external onlyOwner {
         mintingEnabled = _enabled;
     }
@@ -310,8 +332,14 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
         hasMintedGlobal[_user] = false;
         mintedOnChain[_user] = 0;
         for (uint8 i = 1; i <= MAX_POOLS; i++) {
-            hasMintedPerPool[i][_user] = false;
+            mintCountPerPool[i][_user] = 0;
         }
+    }
+
+    // NEW: Reset user mint for specific pool
+    function resetUserMintForPool(address _user, uint8 _poolId) external onlyOwner {
+        if (_poolId < 1 || _poolId > MAX_POOLS) revert InvalidPoolId();
+        mintCountPerPool[_poolId][_user] = 0;
     }
 
     function withdraw() external onlyOwner {
@@ -349,20 +377,29 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
         return (hasMintedGlobal[_user], mintedOnChain[_user]);
     }
 
+    // NEW: Get user's mint count for a specific pool
+    function getUserMintCount(address _user, uint8 _poolId) external view returns (uint256) {
+        if (_poolId < 1 || _poolId > MAX_POOLS) revert InvalidPoolId();
+        return mintCountPerPool[_poolId][_user];
+    }
+
     // ========== RECEIVE FUNCTION ==========
     receive() external payable {
         if (msg.value > 0 && mintingEnabled) {
             // Try to mint from pool 1 if conditions are met
-            if (pools[1].enabled && !hasMintedGlobal[msg.sender] && 
+            if (pools[1].enabled && mintCountPerPool[1][msg.sender] < pools[1].maxMintsPerWallet && 
                 msg.value >= pools[1].mintPrice && pools[1].totalMinted < pools[1].maxSupply) {
                 
                 if (pools[1].totalMinted + (1 * (10 ** decimals())) <= pools[1].maxSupply) {
                     // Only proceed if whitelisted (for pools 1-3)
                     if (whitelist[1][msg.sender]) {
                         pools[1].totalMinted += (1 * (10 ** decimals()));
-                        hasMintedPerPool[1][msg.sender] = true;
-                        hasMintedGlobal[msg.sender] = true;
-                        mintedOnChain[msg.sender] = _getCurrentChainEid();
+                        mintCountPerPool[1][msg.sender] += 1;
+                        
+                        if (!hasMintedGlobal[msg.sender]) {
+                            hasMintedGlobal[msg.sender] = true;
+                            mintedOnChain[msg.sender] = _getCurrentChainEid();
+                        }
                         
                         _mint(msg.sender, 1 * (10 ** decimals()));
                         
@@ -376,7 +413,7 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
                         emit PoolMinted(msg.sender, 1, 1 * (10 ** decimals()), block.timestamp);
                         
                         // Notify other chains
-                        _notifyOtherChains(msg.sender);
+                        _notifyOtherChains(msg.sender, 1);
                     }
                 }
             }
