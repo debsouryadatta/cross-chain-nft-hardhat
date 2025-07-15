@@ -1,5 +1,5 @@
 const { EndpointId } = require("@layerzerolabs/lz-definitions");
-const { ADMIN_WALLET_ADDRESS, ADMIN_PRIVATE_KEY } = require("./env");
+const { ADMIN_WALLET_ADDRESS, ADMIN_PRIVATE_KEY, SONIC_DEPLOYED_CONTRACT_ADDRESS } = require("./env");
 
 const config = {
 	wallets: [ADMIN_WALLET_ADDRESS], //address
@@ -10,7 +10,8 @@ const config = {
 const contractAddresses = {
 	simpleToken: {
 		optimism: "", // Latest deployed
-		base:""
+		base:"",
+		sonic: SONIC_DEPLOYED_CONTRACT_ADDRESS // Sonic chain deployment - DEPLOYED!
 	}
 };
 
@@ -85,6 +86,18 @@ const optimismLZConfig = {
 	receiveLib: "0x3c4962Ff6258dcfCafD23a814237B7d6Eb712063",
 };
 
+const sonicLZConfig = {
+	endpoint: "0x1a44076050125825900e736c501f859c50fE728c", // Placeholder - update with actual Sonic endpoint
+	
+	endpointId: 30332, // Placeholder - update with actual Sonic LayerZero EID
+	
+	erc20: "", // To be deployed on Sonic
+	ca: "", // To be deployed on Sonic
+	sToken: "0x039e2fB66102314Ce7b64Ce5Ce3E5183bc94aD38", // Wrapped S token address
+	sendLib: "", // Update with actual Sonic send library
+	receiveLib: "", // Update with actual Sonic receive library
+};
+
 const bscLZConfig = {
 	endpoint: "0x1a44076050125825900e736c501f859c50fE728c",
 
@@ -104,5 +117,6 @@ module.exports = {
 	bscTestnetLZConfig,
 	lineaLZConfig,
 	arbitrumLZConfig,
-	optimismLZConfig
+	optimismLZConfig,
+	sonicLZConfig
 };

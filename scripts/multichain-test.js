@@ -4,10 +4,12 @@ const config = require("../config.js");
 // Contract addresses from config
 const OPTIMISM_CONTRACT = config.contractAddresses.simpleToken.optimism;
 const LINEA_CONTRACT = config.contractAddresses.simpleToken.linea;
+const SONIC_CONTRACT = config.contractAddresses.simpleToken.sonic;
 
 // LayerZero endpoint IDs
 const OPTIMISM_EID = config.optimismLZConfig.endpointId; // 30111
 const LINEA_EID = config.lineaLZConfig.endpointId; // 30183
+const SONIC_EID = config.sonicLZConfig.endpointId; // 30332
 
 // Test configuration
 const TEST_CONFIG = {
@@ -31,8 +33,10 @@ async function main() {
     
     console.log(`📍 Optimism Contract: ${OPTIMISM_CONTRACT}`);
     console.log(`📍 Linea Contract: ${LINEA_CONTRACT}`);
+    console.log(`📍 Sonic Contract: ${SONIC_CONTRACT}`);
     console.log(`📡 Optimism EID: ${OPTIMISM_EID}`);
     console.log(`📡 Linea EID: ${LINEA_EID}`);
+    console.log(`📡 Sonic EID: ${SONIC_EID}`);
     console.log();
 
     // Get owner signer
@@ -84,6 +88,13 @@ async function main() {
         currentContract = SimpleToken.attach(LINEA_CONTRACT);
         currentContractAddress = LINEA_CONTRACT;
         currentChainName = "Linea";
+        crossChainContract = SimpleToken.attach(OPTIMISM_CONTRACT);
+        crossChainAddress = OPTIMISM_CONTRACT;
+        crossChainName = "Optimism";
+    } else if (network.chainId === 146n) { // Sonic
+        currentContract = SimpleToken.attach(SONIC_CONTRACT);
+        currentContractAddress = SONIC_CONTRACT;
+        currentChainName = "Sonic";
         crossChainContract = SimpleToken.attach(OPTIMISM_CONTRACT);
         crossChainAddress = OPTIMISM_CONTRACT;
         crossChainName = "Optimism";

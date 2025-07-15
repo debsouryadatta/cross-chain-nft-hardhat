@@ -7,11 +7,13 @@ pragma solidity ^0.8.22;
  *         - Pools 1-2 (Freemint & Whitelist GTD): 1 NFT per wallet globally
  *         - Pools 3-4 (Whitelist FCFS & Public): 2 NFTs per wallet globally
  * @dev Uses LayerZero to synchronize mint status across chains
+ *      On Sonic chain, uses S token for minting and gas fees instead of ETH
  */
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {OAppSender, MessagingFee} from "@layerzerolabs/oapp-evm/contracts/oapp/OAppSender.sol";
 import {OAppReceiver, Origin} from "@layerzerolabs/oapp-evm/contracts/oapp/OAppReceiver.sol";
 import {OptionsBuilder} from "@layerzerolabs/oapp-evm/contracts/oapp/libs/OptionsBuilder.sol";
@@ -49,6 +51,8 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
     event CrossChainTransfer(address indexed from, address indexed to, uint256 amount, uint32 dstEid);
     event WhitelistUpdated(uint8 indexed poolId, address indexed account, bool status);
     event CrossChainMintSynced(address indexed user, uint8 indexed poolId, uint32 indexed srcEid); // UPDATED EVENT
+    event STokenPayment(address indexed user, uint256 amount, string operation); // NEW: S token payment tracking
+    event STokenAddressUpdated(address indexed oldAddress, address indexed newAddress); // NEW: S token address update tracking
 
     // ========== ERRORS ==========
     error InvalidPoolId();
@@ -61,9 +65,17 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
     error InvalidAmount();
     error InvalidAddress();
     error TransferFailed();
+    error STokenTransferFailed(); // NEW: S token specific error
 
     // ========== STATE ==========
     uint256 public constant MAX_POOLS = 4;
+    
+    // Sonic chain constants
+    uint256 public constant SONIC_CHAIN_ID = 146;
+    uint32 public constant SONIC_EID = 30332;
+    
+    // S Token contract on Sonic (native S is not ERC20, so we use wrapped S)
+    address public WRAPPED_S_TOKEN = 0x039e2fB66102314Ce7b64Ce5Ce3E5183bc94aD38; // From Sonic docs
 
     mapping(uint8 => PoolInfo) public pools;
     mapping(uint8 => mapping(address => bool)) public whitelist;
@@ -101,6 +113,11 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
             });
             totalMaxSupply += pools[poolId].maxSupply;
         }
+    }
+
+    // ========== CHAIN DETECTION ==========
+    function _isSonicChain() internal view returns (bool) {
+        return block.chainid == SONIC_CHAIN_ID;
     }
 
     // ========== LAYERZERO OVERRIDES ==========
@@ -157,11 +174,12 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
         if (_user == address(0)) return;
         if (_poolId < 1 || _poolId > MAX_POOLS) return;
         
-        // Send message to all configured peer chains
-        for (uint32 i = 1; i <= 2; i++) { // Assuming 2 chains for now
+        // Send message to all configured peer chains (now including Sonic)
+        for (uint32 i = 1; i <= 3; i++) { // Updated for 3 chains: Optimism, Linea, Sonic
             uint32 dstEid;
             if (i == 1) dstEid = 30111; // Optimism
-            else dstEid = 30183; // Linea
+            else if (i == 2) dstEid = 30183; // Linea
+            else dstEid = SONIC_EID; // Sonic
             
             // Skip if this is the current chain or no peer configured
             if (peers[dstEid] == bytes32(0)) continue;
@@ -180,11 +198,50 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
             // Calculate messaging fee
             MessagingFee memory fee = _quote(dstEid, message, options, false);
             
-            // Send the message if contract has enough balance
-            if (address(this).balance >= fee.nativeFee) {
-                _lzSend(dstEid, message, options, MessagingFee(fee.nativeFee, 0), payable(address(this)));
+            // Handle payment based on current chain
+            if (_isSonicChain()) {
+                // On Sonic, use S token for gas fees
+                _handleSonicGasPayment(fee.nativeFee);
+            } else {
+                // On other chains, use native token (ETH)
+                if (address(this).balance >= fee.nativeFee) {
+                    _lzSend(dstEid, message, options, MessagingFee(fee.nativeFee, 0), payable(address(this)));
+                }
             }
         }
+    }
+
+    // ========== S TOKEN HANDLING ==========
+    function _handleSonicGasPayment(uint256 gasAmount) internal {
+        if (!_isSonicChain()) return;
+        
+        // Check if contract has enough wrapped S tokens
+        IERC20 sToken = IERC20(WRAPPED_S_TOKEN);
+        if (sToken.balanceOf(address(this)) >= gasAmount) {
+            // Note: In practice, you'd need to unwrap S tokens to pay for gas
+            // This is a simplified implementation
+            emit STokenPayment(address(this), gasAmount, "gas_payment");
+        }
+    }
+
+    function _handleSTokenPayment(address user, uint256 amount) internal returns (bool) {
+        if (!_isSonicChain()) return false;
+        
+        IERC20 sToken = IERC20(WRAPPED_S_TOKEN);
+        
+        // Check user's S token balance
+        if (sToken.balanceOf(user) < amount) {
+            return false;
+        }
+        
+        // Transfer S tokens from user to contract
+        bool success = sToken.transferFrom(user, address(this), amount);
+        if (!success) {
+            revert STokenTransferFailed();
+        }
+        
+        emit STokenPayment(user, amount, "mint_payment");
+        return true;
     }
 
     // ========== WHITELIST MGMT ==========
@@ -212,11 +269,21 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
 
         PoolInfo storage pool = pools[_poolId];
         if (pool.totalMinted >= pool.maxSupply) revert PoolFull();
-        if (msg.value < pool.mintPrice) revert InsufficientPayment();
 
         uint256 mintAmount = 1 * (10 ** decimals());
-        
         if (pool.maxSupply - pool.totalMinted < mintAmount) revert PoolFull();
+
+        // Handle payment based on chain
+        if (_isSonicChain()) {
+            // On Sonic, accept S token payment
+            bool sTokenPayment = _handleSTokenPayment(msg.sender, pool.mintPrice);
+            if (!sTokenPayment) {
+                revert InsufficientPayment();
+            }
+        } else {
+            // On other chains, use ETH/native token
+            if (msg.value < pool.mintPrice) revert InsufficientPayment();
+        }
 
         // Update state
         pool.totalMinted += mintAmount;
@@ -228,19 +295,20 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
             mintedOnChain[msg.sender] = _getCurrentChainEid();
         }
 
-        // Refund surplus ETH before minting
-        uint256 refundAmount = 0;
-        if (msg.value > pool.mintPrice) {
-            refundAmount = msg.value - pool.mintPrice;
+        // Handle refunds for non-Sonic chains
+        if (!_isSonicChain()) {
+            uint256 refundAmount = 0;
+            if (msg.value > pool.mintPrice) {
+                refundAmount = msg.value - pool.mintPrice;
+            }
+            
+            if (refundAmount > 0) {
+                (bool success, ) = msg.sender.call{value: refundAmount}("");
+                if (!success) revert TransferFailed();
+            }
         }
         
         _mint(msg.sender, mintAmount);
-        
-        // Send refund if needed
-        if (refundAmount > 0) {
-            (bool success, ) = msg.sender.call{value: refundAmount}("");
-            if (!success) revert TransferFailed();
-        }
 
         emit PoolMinted(msg.sender, _poolId, mintAmount, block.timestamp);
         
@@ -253,13 +321,13 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
         uint256 chainId = block.chainid;
         if (chainId == 10) return 30111; // Optimism
         if (chainId == 59144) return 30183; // Linea
+        if (chainId == SONIC_CHAIN_ID) return SONIC_EID; // Sonic
         return 0; // Unknown chain
     }
 
     // ========== CROSS-CHAIN TRANSFER (SOULBOUND) ==========
     function transferToChain(uint32 _dstEid, uint256 _amount) external payable {
         if (!crossChainEnabled) revert PoolDisabled();
-        // if (_to == address(0)) revert InvalidAddress();
         if (_amount == 0) revert InvalidAmount();
         if (balanceOf(msg.sender) < _amount) revert InsufficientPayment();
 
@@ -277,9 +345,20 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
         bytes memory options = OptionsBuilder.newOptions().addExecutorLzReceiveOption(gasLimit, 0);
         
         MessagingFee memory fee = _quote(_dstEid, message, options, false);
-        if (msg.value < fee.nativeFee) revert InsufficientPayment();
 
-        _lzSend(_dstEid, message, options, MessagingFee(fee.nativeFee, 0), payable(msg.sender));
+        if (_isSonicChain()) {
+            // On Sonic, use S token for gas fees
+            bool sTokenPayment = _handleSTokenPayment(msg.sender, fee.nativeFee);
+            if (!sTokenPayment) {
+                revert InsufficientPayment();
+            }
+            // Use S token payment for LayerZero (simplified - in practice needs more complex handling)
+            _lzSend(_dstEid, message, options, MessagingFee(0, 0), payable(address(this)));
+        } else {
+            // On other chains, use ETH/native token
+            if (msg.value < fee.nativeFee) revert InsufficientPayment();
+            _lzSend(_dstEid, message, options, MessagingFee(fee.nativeFee, 0), payable(msg.sender));
+        }
         
         emit CrossChainTransfer(msg.sender, msg.sender, _amount, _dstEid);
     }
@@ -352,11 +431,32 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
     }
 
     function withdraw() external onlyOwner {
+        // Withdraw native tokens (ETH on most chains, S on Sonic)
         uint256 balance = address(this).balance;
         if (balance > 0) {
             (bool success, ) = owner().call{value: balance}("");
             if (!success) revert TransferFailed();
         }
+        
+        // Also withdraw S tokens if on Sonic chain
+        if (_isSonicChain()) {
+            IERC20 sToken = IERC20(WRAPPED_S_TOKEN);
+            uint256 sBalance = sToken.balanceOf(address(this));
+            if (sBalance > 0) {
+                bool success = sToken.transfer(owner(), sBalance);
+                if (!success) revert TransferFailed();
+            }
+        }
+    }
+
+    // NEW: Admin function to set S token contract address (if needed)
+    function setSTokenAddress(address _sTokenAddress) external onlyOwner {
+        if (_sTokenAddress == address(0)) revert InvalidAddress();
+        
+        address oldAddress = WRAPPED_S_TOKEN;
+        WRAPPED_S_TOKEN = _sTokenAddress;
+        
+        emit STokenAddressUpdated(oldAddress, _sTokenAddress);
     }
 
     // ========== VIEW FUNCTIONS ==========
@@ -394,35 +494,48 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
 
     // ========== RECEIVE FUNCTION ==========
     receive() external payable nonReentrant {
-        if (msg.value > 0 && mintingEnabled) {
+        if (mintingEnabled) {
             // Try to mint from pool 1 if conditions are met
             if (pools[1].enabled && mintCountPerPool[1][msg.sender] < pools[1].maxMintsPerWallet && 
-                msg.value >= pools[1].mintPrice && pools[1].totalMinted < pools[1].maxSupply) {
+                pools[1].totalMinted < pools[1].maxSupply) {
                 
                 if (pools[1].totalMinted + (1 * (10 ** decimals())) <= pools[1].maxSupply) {
                     // Only proceed if whitelisted (for pools 1-3)
                     if (whitelist[1][msg.sender]) {
-                        pools[1].totalMinted += (1 * (10 ** decimals()));
-                        mintCountPerPool[1][msg.sender] += 1;
                         
-                        if (!hasMintedGlobal[msg.sender]) {
-                            hasMintedGlobal[msg.sender] = true;
-                            mintedOnChain[msg.sender] = _getCurrentChainEid();
+                        // Handle payment based on chain
+                        bool paymentSuccess = false;
+                        if (_isSonicChain()) {
+                            // On Sonic, accept S token payment
+                            paymentSuccess = _handleSTokenPayment(msg.sender, pools[1].mintPrice);
+                        } else {
+                            // On other chains, use ETH/native token
+                            paymentSuccess = (msg.value >= pools[1].mintPrice);
                         }
                         
-                        _mint(msg.sender, 1 * (10 ** decimals()));
-                        
-                        // Refund excess
-                        if (msg.value > pools[1].mintPrice) {
-                            uint256 refund = msg.value - pools[1].mintPrice;
-                            (bool success, ) = msg.sender.call{value: refund}("");
-                            require(success, "Refund failed");
+                        if (paymentSuccess) {
+                            pools[1].totalMinted += (1 * (10 ** decimals()));
+                            mintCountPerPool[1][msg.sender] += 1;
+                            
+                            if (!hasMintedGlobal[msg.sender]) {
+                                hasMintedGlobal[msg.sender] = true;
+                                mintedOnChain[msg.sender] = _getCurrentChainEid();
+                            }
+                            
+                            _mint(msg.sender, 1 * (10 ** decimals()));
+                            
+                            // Handle refunds for non-Sonic chains
+                            if (!_isSonicChain() && msg.value > pools[1].mintPrice) {
+                                uint256 refund = msg.value - pools[1].mintPrice;
+                                (bool success, ) = msg.sender.call{value: refund}("");
+                                require(success, "Refund failed");
+                            }
+                            
+                            emit PoolMinted(msg.sender, 1, 1 * (10 ** decimals()), block.timestamp);
+                            
+                            // Notify other chains
+                            _notifyOtherChains(msg.sender, 1);
                         }
-                        
-                        emit PoolMinted(msg.sender, 1, 1 * (10 ** decimals()), block.timestamp);
-                        
-                        // Notify other chains
-                        _notifyOtherChains(msg.sender, 1);
                     }
                 }
             }

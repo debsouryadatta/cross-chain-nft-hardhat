@@ -120,5 +120,13 @@ module.exports = {
 			accounts,
 			chainId: 10,
 		},
+
+		sonic: {
+			url: "https://sonic.drpc.org", // dRPC endpoint (working)
+			accounts,
+			chainId: 146,
+			timeout: 60000, // 60 seconds timeout
+			gasPrice: "auto"
+		},
 	},
 };
