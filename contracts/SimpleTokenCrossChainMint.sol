@@ -3,11 +3,12 @@ pragma solidity ^0.8.22;
 
 /**
  * @title SimpleTokenCrossChainMint - Multi-Pool Cross-Chain Token with Per-Pool Mint Restrictions
- * @notice Different mint limits per pool type across all chains:
+ * @notice Different mint limits per pool type across Ethereum and Sonic chains:
  *         - Pools 1-2 (Freemint & Whitelist GTD): 1 NFT per wallet globally
  *         - Pools 3-4 (Whitelist FCFS & Public): 2 NFTs per wallet globally
- * @dev Uses LayerZero to synchronize mint status across chains
+ * @dev Uses LayerZero to synchronize mint status between Ethereum mainnet and Sonic chain
  *      On Sonic chain, uses S token for minting and gas fees instead of ETH
+ *      On Ethereum mainnet, uses native ETH for minting and gas fees
  */
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -70,9 +71,11 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
     // ========== STATE ==========
     uint256 public constant MAX_POOLS = 4;
     
-    // Sonic chain constants
+    // Chain constants
     uint256 public constant SONIC_CHAIN_ID = 146;
     uint32 public constant SONIC_EID = 30332;
+    uint256 public constant ETH_CHAIN_ID = 1;
+    uint32 public constant ETH_EID = 30101;
     
     // S Token contract on Sonic (native S is not ERC20, so we use wrapped S)
     address public WRAPPED_S_TOKEN = 0x039e2fB66102314Ce7b64Ce5Ce3E5183bc94aD38; // From Sonic docs
@@ -118,6 +121,10 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
     // ========== CHAIN DETECTION ==========
     function _isSonicChain() internal view returns (bool) {
         return block.chainid == SONIC_CHAIN_ID;
+    }
+    
+    function _isEthereumChain() internal view returns (bool) {
+        return block.chainid == ETH_CHAIN_ID;
     }
 
     // ========== LAYERZERO OVERRIDES ==========
@@ -174,39 +181,36 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
         if (_user == address(0)) return;
         if (_poolId < 1 || _poolId > MAX_POOLS) return;
         
-        // Send message to all configured peer chains (now including Sonic)
-        for (uint32 i = 1; i <= 3; i++) { // Updated for 3 chains: Optimism, Linea, Sonic
-            uint32 dstEid;
-            if (i == 1) dstEid = 30111; // Optimism
-            else if (i == 2) dstEid = 30183; // Linea
-            else dstEid = SONIC_EID; // Sonic
+        // Send message to the other chain (Ethereum or Sonic)
+        // Determine destination chain - if we're on Sonic, send to Ethereum, and vice versa
+        uint32 dstEid;
+        if (_isSonicChain()) {
+            dstEid = ETH_EID; // Ethereum mainnet
+        } else {
+            dstEid = SONIC_EID; // Sonic chain
+        }
             
-            // Skip if this is the current chain or no peer configured
-            if (peers[dstEid] == bytes32(0)) continue;
-            
-            ActionData memory action = ActionData({
-                actionType: ActionType.SyncMintStatus,
-                account: _user,
-                amount: 0,
-                poolId: _poolId
-            });
-            
-            bytes memory message = abi.encode(action);
-            uint128 gasLimit = crossChainGasLimits[dstEid] > 0 ? crossChainGasLimits[dstEid] : defaultGasLimit;
-            bytes memory options = OptionsBuilder.newOptions().addExecutorLzReceiveOption(gasLimit, 0);
-            
-            // Calculate messaging fee
-            MessagingFee memory fee = _quote(dstEid, message, options, false);
-            
-            // Handle payment based on current chain
-            if (_isSonicChain()) {
-                // On Sonic, use S token for gas fees
-                _handleSonicGasPayment(fee.nativeFee);
-            } else {
-                // On other chains, use native token (ETH)
-                if (address(this).balance >= fee.nativeFee) {
-                    _lzSend(dstEid, message, options, MessagingFee(fee.nativeFee, 0), payable(address(this)));
-                }
+        ActionData memory action = ActionData({
+            actionType: ActionType.SyncMintStatus,
+            account: _user,
+            amount: 0,
+            poolId: _poolId
+        });
+        
+        bytes memory message = abi.encode(action);
+        uint128 gasLimit = crossChainGasLimits[dstEid] > 0 ? crossChainGasLimits[dstEid] : defaultGasLimit;
+        bytes memory options = OptionsBuilder.newOptions().addExecutorLzReceiveOption(gasLimit, 0);
+        
+        MessagingFee memory fee = _quote(dstEid, message, options, false);
+        
+        // Handle payment based on current chain
+        if (_isSonicChain()) {
+            // On Sonic, use S token for gas fees
+            _handleSonicGasPayment(fee.nativeFee);
+        } else {
+            // On other chains, use native token (ETH)
+            if (address(this).balance >= fee.nativeFee) {
+                _lzSend(dstEid, message, options, MessagingFee(fee.nativeFee, 0), payable(address(this)));
             }
         }
     }
@@ -318,11 +322,10 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
 
     // ========== HELPER FUNCTIONS ==========
     function _getCurrentChainEid() internal view returns (uint32) {
-        uint256 chainId = block.chainid;
-        if (chainId == 10) return 30111; // Optimism
-        if (chainId == 59144) return 30183; // Linea
-        if (chainId == SONIC_CHAIN_ID) return SONIC_EID; // Sonic
-        return 0; // Unknown chain
+        if (_isSonicChain()) return SONIC_EID;
+        
+        // We only support Ethereum mainnet besides Sonic
+        return ETH_EID; // ETH Mainnet EID
     }
 
     // ========== CROSS-CHAIN TRANSFER (SOULBOUND) ==========

@@ -1,17 +1,13 @@
 const { ethers } = require("hardhat");
 const config = require("../config.js");
 
-// Chain detection
-const SONIC_CHAIN_ID = 146;
-const SONIC_EID = 30332;
+// Contract addresses from config
+const SONIC_CONTRACT = config.contractAddresses.simpleToken.sonic;
+const ETH_CONTRACT = config.contractAddresses.simpleToken.ethereum;
 
-// Contract addresses from config  
-const getContractAddress = (chainId) => {
-    if (chainId === 10) return config.contractAddresses.simpleToken.optimism;
-    if (chainId === 8453) return config.contractAddresses.simpleToken.base;
-    if (chainId === SONIC_CHAIN_ID) return config.contractAddresses.simpleToken.sonic || "";
-    return config.contractAddresses.simpleToken.base; // fallback
-};
+// LayerZero endpoint IDs
+const SONIC_EID = config.sonicLZConfig.endpointId; // 30332
+const ETH_EID = config.ethereumLZConfig.endpointId; // 30101
 
 // S Token contract address on Sonic
 const WRAPPED_S_TOKEN = "0x039e2fB66102314Ce7b64Ce5Ce3E5183bc94aD38";
@@ -33,14 +29,17 @@ async function main() {
     // Detect current chain
     const network = await ethers.provider.getNetwork();
     const chainId = Number(network.chainId);
-    const isSonicChain = chainId === SONIC_CHAIN_ID;
+    const isSonicChain = chainId === 146;
     
-    const CONTRACT_ADDRESS = getContractAddress(chainId);
+    const CONTRACT_ADDRESS = isSonicChain ? SONIC_CONTRACT : ETH_CONTRACT;
     
-    console.log(`📍 Chain ID: ${chainId}`);
-    console.log(`🌐 Network: ${isSonicChain ? 'Sonic' : 'ETH-based'}`);
-    console.log(`📍 Contract Address: ${CONTRACT_ADDRESS}`);
-    console.log("=".repeat(60));
+    console.log(`🌐 Current Network: ${network.name} (Chain ID: ${network.chainId})`);
+    
+    console.log(`📍 Sonic Contract: ${SONIC_CONTRACT}`);
+    console.log(`📍 Ethereum Contract: ${ETH_CONTRACT}`);
+    console.log(`📡 Sonic EID: ${SONIC_EID}`);
+    console.log(`📡 Ethereum EID: ${ETH_EID}`);
+    console.log();
     
     // Check if contract is deployed
     if (!CONTRACT_ADDRESS || CONTRACT_ADDRESS === "0x0000000000000000000000000000000000000000") {
@@ -83,15 +82,13 @@ async function main() {
     const user1 = ethers.Wallet.createRandom().connect(ethers.provider);
     const user2 = ethers.Wallet.createRandom().connect(ethers.provider);
     const user3 = ethers.Wallet.createRandom().connect(ethers.provider);
-    const user4 = ethers.Wallet.createRandom().connect(ethers.provider);
     
     console.log(`👤 Owner: ${owner.address}`);
     console.log(`👤 User1: ${user1.address}`);
     console.log(`👤 User2: ${user2.address}`);
     console.log(`👤 User3: ${user3.address}`);
-    console.log(`👤 User4: ${user4.address}`);
     console.log();
-
+    
     // Connect to contracts
     const SimpleTokenCrossChainMint = await ethers.getContractFactory("SimpleTokenCrossChainMint");
     const contract = SimpleTokenCrossChainMint.attach(CONTRACT_ADDRESS);
@@ -148,7 +145,7 @@ async function main() {
             // On Sonic, fund with native tokens for gas (actual S token funding would require manual setup)
             console.log("💰 Funding test users with native tokens for gas...");
             const fundAmount = ethers.parseEther("0.00001");
-            for (const user of [user1, user2, user3, user4]) {
+            for (const user of [user1, user2, user3]) {
                 const tx = await owner.sendTransaction({
                     to: user.address,
                     value: fundAmount
@@ -161,7 +158,7 @@ async function main() {
             // On ETH chains, fund with native token
             console.log("💰 Funding test users with ETH...");
             const fundAmount = ethers.parseEther("0.00001");
-            for (const user of [user1, user2, user3, user4]) {
+            for (const user of [user1, user2, user3]) {
                 const tx = await owner.sendTransaction({
                     to: user.address,
                     value: fundAmount
@@ -269,9 +266,9 @@ async function main() {
     await runTest("Non-whitelisted User Mint Attempt", async () => {
         try {
             if (isSonicChain) {
-                await contract.connect(user4).mintFromPool(1);
+                await contract.connect(user3).mintFromPool(1);
             } else {
-                await contract.connect(user4).mintFromPool(1, { value: TEST_CONFIG.poolPrices[0] });
+                await contract.connect(user3).mintFromPool(1, { value: TEST_CONFIG.poolPrices[0] });
             }
             throw new Error("Expected transaction to fail");
         } catch (error) {
@@ -292,21 +289,21 @@ async function main() {
             console.log("      3. Call mintFromPool");
             console.log("   ℹ️  Skipping actual mint due to S token setup requirements");
         } else {
-            const initialBalance = await contract.balanceOf(user4.address);
+            const initialBalance = await contract.balanceOf(user3.address);
             
-            const tx = await contract.connect(user4).mintFromPool(4, { 
+            const tx = await contract.connect(user3).mintFromPool(4, { 
                 value: TEST_CONFIG.poolPrices[3] 
             });
             await tx.wait();
             
-            const finalBalance = await contract.balanceOf(user4.address);
+            const finalBalance = await contract.balanceOf(user3.address);
             const expectedIncrease = ethers.parseEther("1");
             
             if (finalBalance - initialBalance !== expectedIncrease) {
                 throw new Error("Balance increase doesn't match expected amount");
             }
             
-            console.log(`   ✅ User4 minted 1 token from Pool 4 (public)`);
+            console.log(`   ✅ User3 minted 1 token from Pool 4 (public)`);
         }
     });
 
@@ -502,12 +499,10 @@ async function main() {
         const user1Balance = await contract.balanceOf(user1.address);
         const user2Balance = await contract.balanceOf(user2.address);
         const user3Balance = await contract.balanceOf(user3.address);
-        const user4Balance = await contract.balanceOf(user4.address);
         
         console.log(`   👤 User1 balance: ${ethers.formatEther(user1Balance)} tokens`);
         console.log(`   👤 User2 balance: ${ethers.formatEther(user2Balance)} tokens`);
         console.log(`   👤 User3 balance: ${ethers.formatEther(user3Balance)} tokens`);
-        console.log(`   👤 User4 balance: ${ethers.formatEther(user4Balance)} tokens`);
         
         // Owner should not have minted tokens (admin role only)
         if (ownerBalance > 0) {
@@ -522,12 +517,10 @@ async function main() {
         const user1Status = await safeContractCall(contract.hasMintedGlobal.bind(contract), user1.address);
         const user2Status = await safeContractCall(contract.hasMintedGlobal.bind(contract), user2.address);
         const user3Status = await safeContractCall(contract.hasMintedGlobal.bind(contract), user3.address);
-        const user4Status = await safeContractCall(contract.hasMintedGlobal.bind(contract), user4.address);
         
         console.log(`   👤 User1 minted: ${user1Status}`);
         console.log(`   👤 User2 minted: ${user2Status}`);
         console.log(`   👤 User3 minted: ${user3Status}`);
-        console.log(`   👤 User4 minted: ${user4Status}`);
         
         console.log("   ✅ Global minting status tracked correctly");
     });
@@ -537,11 +530,14 @@ async function main() {
         const crossChainEnabled = await safeContractCall(contract.crossChainEnabled.bind(contract));
         const defaultGasLimit = await safeContractCall(contract.defaultGasLimit.bind(contract));
         const sonicGasLimit = await safeContractCall(contract.crossChainGasLimits.bind(contract), SONIC_EID);
+        const ethGasLimit = await safeContractCall(contract.crossChainGasLimits.bind(contract), ETH_EID);
         
         console.log(`   🌐 Cross-chain enabled: ${crossChainEnabled}`);
         console.log(`   ⛽ Default gas limit: ${defaultGasLimit}`);
         console.log(`   ⛽ Sonic gas limit: ${sonicGasLimit}`);
+        console.log(`   ⛽ Ethereum gas limit: ${ethGasLimit}`);
         console.log(`   📡 Sonic EID: ${SONIC_EID}`);
+        console.log(`   📡 Ethereum EID: ${ETH_EID}`);
         console.log(`   🪙 S Token for gas: ${isSonicChain ? 'Yes' : 'No'}`);
         
         if (!crossChainEnabled) {
@@ -723,7 +719,7 @@ async function main() {
     await runTest("Refund Test Balance to Owner", async () => {
         console.log("💰 Refunding remaining test balance to owner...");
         
-        for (const user of [user1, user2, user3, user4]) {
+        for (const user of [user1, user2, user3]) {
             const balance = await ethers.provider.getBalance(user.address);
             if (balance > 0) {
                 try {

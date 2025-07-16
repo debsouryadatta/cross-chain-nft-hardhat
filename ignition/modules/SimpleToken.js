@@ -1,6 +1,6 @@
 const { buildModule } = require("@nomicfoundation/hardhat-ignition/modules");
 const { wallets } = require("../../config");
-const { optimismLZConfig, baseLZConfig, sonicLZConfig } = require("../../config");
+const { ethereumLZConfig, sonicLZConfig } = require("../../config");
 
 // Simple token configuration
 const NAME = "CrossChain Token";
@@ -8,17 +8,14 @@ const SYMBOL = "CCT";
 
 // Determine LayerZero endpoint based on network
 function getLZEndpoint() {
-    const network = process.env.HARDHAT_NETWORK || "base";
+    const network = process.env.HARDHAT_NETWORK || "mainnet";
     
     switch (network) {
-        case "optimism":
-            return optimismLZConfig.endpoint;
         case "sonic":
-            // Use dummy address for Sonic deployment testing
-            return "0x0000000000000000000000000000000000000001"; // Dummy address for testing
-        case "base":
+            return sonicLZConfig.endpoint;
+        case "mainnet":
         default:
-            return baseLZConfig.endpoint;
+            return ethereumLZConfig.endpoint;
     }
 }
 
@@ -60,6 +57,5 @@ module.exports = buildModule("SimpleTokenCrossChainMint", (m) => {
 });
 
 // Deployment commands:
-// npx hardhat ignition deploy ignition/modules/SimpleToken.js --network optimism --verify
-// npx hardhat ignition deploy ignition/modules/SimpleToken.js --network base --verify  
+// npx hardhat ignition deploy ignition/modules/SimpleToken.js --network mainnet --verify
 // npx hardhat ignition deploy ignition/modules/SimpleToken.js --network sonic --verify

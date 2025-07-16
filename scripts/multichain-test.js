@@ -2,13 +2,11 @@ const { ethers } = require("hardhat");
 const config = require("../config.js");
 
 // Contract addresses from config
-const OPTIMISM_CONTRACT = config.contractAddresses.simpleToken.optimism;
-const LINEA_CONTRACT = config.contractAddresses.simpleToken.linea;
+const ETH_CONTRACT = config.contractAddresses.simpleToken.ethereum;
 const SONIC_CONTRACT = config.contractAddresses.simpleToken.sonic;
 
 // LayerZero endpoint IDs
-const OPTIMISM_EID = config.optimismLZConfig.endpointId; // 30111
-const LINEA_EID = config.lineaLZConfig.endpointId; // 30183
+const ETH_EID = config.ethereumLZConfig.endpointId; // 30101
 const SONIC_EID = config.sonicLZConfig.endpointId; // 30332
 
 // Test configuration
@@ -31,11 +29,9 @@ async function main() {
     const network = await ethers.provider.getNetwork();
     console.log(`🌐 Current Network: ${network.name} (Chain ID: ${network.chainId})`);
     
-    console.log(`📍 Optimism Contract: ${OPTIMISM_CONTRACT}`);
-    console.log(`📍 Linea Contract: ${LINEA_CONTRACT}`);
+    console.log(`📍 Ethereum Contract: ${ETH_CONTRACT}`);
     console.log(`📍 Sonic Contract: ${SONIC_CONTRACT}`);
-    console.log(`📡 Optimism EID: ${OPTIMISM_EID}`);
-    console.log(`📡 Linea EID: ${LINEA_EID}`);
+    console.log(`📡 Ethereum EID: ${ETH_EID}`);
     console.log(`📡 Sonic EID: ${SONIC_EID}`);
     console.log();
 
@@ -53,8 +49,8 @@ async function main() {
 
     // Fund test users (adjust amount based on network)
     console.log("💰 Funding test users...");
-    const fundAmount = network.chainId === 59144n ? 
-        ethers.parseEther("0.0005") : ethers.parseEther("0.0005");    // Optimism
+    const fundAmount = network.chainId === 146n ? 
+        ethers.parseEther("0.0005") : ethers.parseEther("0.0005");    // Ethereum
     
     console.log(`   💰 Funding amount: ${ethers.formatEther(fundAmount)} ETH per user`);
     
@@ -77,27 +73,20 @@ async function main() {
     let currentContract, currentContractAddress, currentChainName;
     let crossChainContract, crossChainAddress, crossChainName;
     
-    if (network.chainId === 10n) { // Optimism
-        currentContract = SimpleToken.attach(OPTIMISM_CONTRACT);
-        currentContractAddress = OPTIMISM_CONTRACT;
-        currentChainName = "Optimism";
-        crossChainContract = SimpleToken.attach(LINEA_CONTRACT);
-        crossChainAddress = LINEA_CONTRACT;
-        crossChainName = "Linea";
-    } else if (network.chainId === 59144n) { // Linea
-        currentContract = SimpleToken.attach(LINEA_CONTRACT);
-        currentContractAddress = LINEA_CONTRACT;
-        currentChainName = "Linea";
-        crossChainContract = SimpleToken.attach(OPTIMISM_CONTRACT);
-        crossChainAddress = OPTIMISM_CONTRACT;
-        crossChainName = "Optimism";
+    if (network.chainId === 1n) { // Ethereum mainnet
+        currentContract = SimpleToken.attach(ETH_CONTRACT);
+        currentContractAddress = ETH_CONTRACT;
+        currentChainName = "Ethereum";
+        crossChainContract = SimpleToken.attach(SONIC_CONTRACT);
+        crossChainAddress = SONIC_CONTRACT;
+        crossChainName = "Sonic";
     } else if (network.chainId === 146n) { // Sonic
         currentContract = SimpleToken.attach(SONIC_CONTRACT);
         currentContractAddress = SONIC_CONTRACT;
         currentChainName = "Sonic";
-        crossChainContract = SimpleToken.attach(OPTIMISM_CONTRACT);
-        crossChainAddress = OPTIMISM_CONTRACT;
-        crossChainName = "Optimism";
+        crossChainContract = SimpleToken.attach(ETH_CONTRACT);
+        crossChainAddress = ETH_CONTRACT;
+        crossChainName = "Ethereum";
     } else {
         throw new Error(`Unsupported network: ${network.name} (Chain ID: ${network.chainId})`);
     }
@@ -295,11 +284,11 @@ async function main() {
         console.log(`   ⛽ Default gas limit: ${defaultGasLimit}`);
         
         // Check gas limits for both chains
-        const optimismGasLimit = await currentContract.crossChainGasLimits(OPTIMISM_EID);
-        const lineaGasLimit = await currentContract.crossChainGasLimits(LINEA_EID);
+        const ethGasLimit = await currentContract.crossChainGasLimits(ETH_EID);
+        const sonicGasLimit = await currentContract.crossChainGasLimits(SONIC_EID);
         
-        console.log(`   ⛽ Optimism gas limit (EID ${OPTIMISM_EID}): ${optimismGasLimit}`);
-        console.log(`   ⛽ Linea gas limit (EID ${LINEA_EID}): ${lineaGasLimit}`);
+        console.log(`   ⛽ Ethereum gas limit (EID ${ETH_EID}): ${ethGasLimit}`);
+        console.log(`   ⛽ Sonic gas limit (EID ${SONIC_EID}): ${sonicGasLimit}`);
         
         console.log(`   ✅ Cross-chain configuration checked`);
     });
