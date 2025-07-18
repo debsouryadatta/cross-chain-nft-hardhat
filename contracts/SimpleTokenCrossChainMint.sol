@@ -77,6 +77,16 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
     uint256 public constant ETH_CHAIN_ID = 1;
     uint32 public constant ETH_EID = 30101;
     
+    // Additional chain constants
+    uint256 public constant LINEA_CHAIN_ID = 59144;
+    uint32 public constant LINEA_EID = 30183;
+    uint256 public constant OPTIMISM_CHAIN_ID = 10;
+    uint32 public constant OPTIMISM_EID = 30111;
+    uint256 public constant BASE_CHAIN_ID = 8453;
+    uint32 public constant BASE_EID = 30184;
+    uint256 public constant ARBITRUM_CHAIN_ID = 42161;
+    uint32 public constant ARBITRUM_EID = 30110;
+    
     // S Token contract on Sonic (native S is not ERC20, so we use wrapped S)
     address public WRAPPED_S_TOKEN = 0x039e2fB66102314Ce7b64Ce5Ce3E5183bc94aD38; // From Sonic docs
 
@@ -125,6 +135,27 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
     
     function _isEthereumChain() internal view returns (bool) {
         return block.chainid == ETH_CHAIN_ID;
+    }
+    
+    function _isLineaChain() internal view returns (bool) {
+        return block.chainid == LINEA_CHAIN_ID;
+    }
+    
+    function _isOptimismChain() internal view returns (bool) {
+        return block.chainid == OPTIMISM_CHAIN_ID;
+    }
+    
+    function _isBaseChain() internal view returns (bool) {
+        return block.chainid == BASE_CHAIN_ID;
+    }
+    
+    function _isArbitrumChain() internal view returns (bool) {
+        return block.chainid == ARBITRUM_CHAIN_ID;
+    }
+    
+    function _isEthTokenChain() internal view returns (bool) {
+        // All chains except Sonic use ETH token
+        return !_isSonicChain();
     }
 
     // ========== LAYERZERO OVERRIDES ==========
@@ -181,14 +212,16 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
         if (_user == address(0)) return;
         if (_poolId < 1 || _poolId > MAX_POOLS) return;
         
-        // Send message to the other chain (Ethereum or Sonic)
-        // Determine destination chain - if we're on Sonic, send to Ethereum, and vice versa
-        uint32 dstEid;
-        if (_isSonicChain()) {
-            dstEid = ETH_EID; // Ethereum mainnet
-        } else {
-            dstEid = SONIC_EID; // Sonic chain
-        }
+        // Send message to all other chains to sync mint status
+        // Get current chain EID
+        uint32 currentEid = _getCurrentChainEid();
+        
+        // We'll send to all chains except the current one
+        uint32[] memory destinationEids = _getOtherChainEids(currentEid);
+        
+        // Send message to each destination chain
+        for (uint256 i = 0; i < destinationEids.length; i++) {
+            uint32 dstEid = destinationEids[i];
             
         ActionData memory action = ActionData({
             actionType: ActionType.SyncMintStatus,
@@ -203,14 +236,16 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
         
         MessagingFee memory fee = _quote(dstEid, message, options, false);
         
-        // Handle payment based on current chain
-        if (_isSonicChain()) {
-            // On Sonic, use S token for gas fees
-            _handleSonicGasPayment(fee.nativeFee);
-        } else {
-            // On other chains, use native token (ETH)
-            if (address(this).balance >= fee.nativeFee) {
+            // Handle payment based on current chain
+            if (_isSonicChain()) {
+                // On Sonic, use S token for gas fees
+                _handleSonicGasPayment(fee.nativeFee);
                 _lzSend(dstEid, message, options, MessagingFee(fee.nativeFee, 0), payable(address(this)));
+            } else {
+                // On other chains, use native token (ETH)
+                if (address(this).balance >= fee.nativeFee) {
+                    _lzSend(dstEid, message, options, MessagingFee(fee.nativeFee, 0), payable(address(this)));
+                }
             }
         }
     }
@@ -322,10 +357,52 @@ contract SimpleTokenCrossChainMint is ERC20, Ownable, ReentrancyGuard, OAppSende
 
     // ========== HELPER FUNCTIONS ==========
     function _getCurrentChainEid() internal view returns (uint32) {
-        if (_isSonicChain()) return SONIC_EID;
+        if (_isSonicChain()) {
+            return SONIC_EID;
+        } else if (_isLineaChain()) {
+            return LINEA_EID;
+        } else if (_isOptimismChain()) {
+            return OPTIMISM_EID;
+        } else if (_isBaseChain()) {
+            return BASE_EID;
+        } else if (_isArbitrumChain()) {
+            return ARBITRUM_EID;
+        } else {
+            return ETH_EID; // Default to Ethereum
+        }
+    }
+    
+    function _getOtherChainEids(uint32 currentEid) internal pure returns (uint32[] memory) {
+        // Create an array with all possible chain EIDs
+        uint32[] memory allEids = new uint32[](6);
+        allEids[0] = ETH_EID;
+        allEids[1] = SONIC_EID;
+        allEids[2] = LINEA_EID;
+        allEids[3] = OPTIMISM_EID;
+        allEids[4] = BASE_EID;
+        allEids[5] = ARBITRUM_EID;
         
-        // We only support Ethereum mainnet besides Sonic
-        return ETH_EID; // ETH Mainnet EID
+        // Count how many chains we need to include (all except current)
+        uint256 count = 0;
+        for (uint256 i = 0; i < allEids.length; i++) {
+            if (allEids[i] != currentEid) {
+                count++;
+            }
+        }
+        
+        // Create result array with the right size
+        uint32[] memory result = new uint32[](count);
+        uint256 resultIndex = 0;
+        
+        // Fill result array with all EIDs except current
+        for (uint256 i = 0; i < allEids.length; i++) {
+            if (allEids[i] != currentEid) {
+                result[resultIndex] = allEids[i];
+                resultIndex++;
+            }
+        }
+        
+        return result;
     }
 
     // ========== CROSS-CHAIN TRANSFER (SOULBOUND) ==========

@@ -3,9 +3,7 @@ require("@nomicfoundation/hardhat-verify");
 require("@nomicfoundation/hardhat-toolbox");
 
 const { accounts } = require("./config");
-const { 
-    INFURA_API_KEY
-} = require("./env");
+const { INFURA_API_KEY } = require("./env");
 
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
@@ -53,16 +51,31 @@ module.exports = {
 			url: `https://mainnet.infura.io/v3/${INFURA_API_KEY}`,
 			accounts,
 			chainId: 1,
-			gasPrice: "auto",
-			timeout: 60000, // 60 seconds timeout
 		},
-
 		sonic: {
 			url: "https://rpc.soniclabs.com", // dRPC endpoint for Sonic
 			accounts,
 			chainId: 146,
-			timeout: 60000, // 60 seconds timeout
-			gasPrice: "auto"
+		},
+		linea: {
+			url: `https://linea-mainnet.infura.io/v3/${INFURA_API_KEY}`,
+			accounts,
+			chainId: 59144,
+		},
+		optimism: {
+			url: `https://optimism-mainnet.infura.io/v3/${INFURA_API_KEY}`,
+			accounts,
+			chainId: 10,
+		},
+		base: {
+			url: `https://base-mainnet.infura.io/v3/${INFURA_API_KEY}`,
+			accounts,
+			chainId: 8453,
+		},
+		arbitrum: {
+			url: `https://arbitrum-mainnet.infura.io/v3/${INFURA_API_KEY}`,
+			accounts,
+			chainId: 42161,
 		},
 	},
 };

@@ -1,6 +1,14 @@
 const { buildModule } = require("@nomicfoundation/hardhat-ignition/modules");
 const { wallets } = require("../../config");
-const { ethereumLZConfig, sonicLZConfig } = require("../../config");
+const { 
+    ethereumLZConfig, 
+    sonicLZConfig, 
+    lineaLZConfig, 
+    optimismLZConfig, 
+    baseLZConfig, 
+    arbitrumLZConfig 
+} = require("../../config");
+require("dotenv").config();
 
 // Simple token configuration
 const NAME = "CrossChain Token";
@@ -13,6 +21,14 @@ function getLZEndpoint() {
     switch (network) {
         case "sonic":
             return sonicLZConfig.endpoint;
+        case "linea":
+            return lineaLZConfig.endpoint;
+        case "optimism":
+            return optimismLZConfig.endpoint;
+        case "base":
+            return baseLZConfig.endpoint;
+        case "arbitrum":
+            return arbitrumLZConfig.endpoint;
         case "mainnet":
         default:
             return ethereumLZConfig.endpoint;
@@ -57,5 +73,5 @@ module.exports = buildModule("SimpleTokenCrossChainMint", (m) => {
 });
 
 // Deployment commands:
-// npx hardhat ignition deploy ignition/modules/SimpleToken.js --network mainnet --verify
-// npx hardhat ignition deploy ignition/modules/SimpleToken.js --network sonic --verify
+// npx hardhat ignition deploy ignition/modules/SimpleToken.js --network mainnet
+// npx hardhat ignition deploy ignition/modules/SimpleToken.js --network sonic
