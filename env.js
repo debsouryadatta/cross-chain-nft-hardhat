@@ -16,9 +16,14 @@ const env = {
     // Infura RPC URLs (to be moved to .env)
     INFURA_API_KEY: process.env.INFURA_API_KEY,
 
+    // Etherscan API Key
+    ETHERSCAN_API_KEY: process.env.ETHERSCAN_API_KEY,
+
     // Smart Contract Addresses
     SONIC_DEPLOYED_CONTRACT_ADDRESS: process.env.SONIC_DEPLOYED_CONTRACT_ADDRESS,
     ETH_DEPLOYED_CONTRACT_ADDRESS: process.env.ETH_DEPLOYED_CONTRACT_ADDRESS,
+    BASE_DEPLOYED_CONTRACT_ADDRESS: process.env.BASE_DEPLOYED_CONTRACT_ADDRESS,
+    OPTIMISM_DEPLOYED_CONTRACT_ADDRESS: process.env.OPTIMISM_DEPLOYED_CONTRACT_ADDRESS,
 };
 
 module.exports = env;

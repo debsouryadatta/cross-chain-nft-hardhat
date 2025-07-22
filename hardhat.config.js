@@ -3,7 +3,7 @@ require("@nomicfoundation/hardhat-verify");
 require("@nomicfoundation/hardhat-toolbox");
 
 const { accounts } = require("./config");
-const { INFURA_API_KEY } = require("./env");
+const { INFURA_API_KEY, ETHERSCAN_API_KEY } = require("./env");
 
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
@@ -19,10 +19,7 @@ module.exports = {
 		},
 	},
 	etherscan: {
-		// Add Etherscan API key when needed
-		apiKey: {
-			mainnet: "", // Add Ethereum mainnet API key when needed
-		},
+		apiKey: ETHERSCAN_API_KEY,
 	},
 
 	sourcify: {
