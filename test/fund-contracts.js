@@ -88,7 +88,7 @@ async function main() {
         
         // Fund contracts with 0.003 ETH each (around 0.6-0.7 USD)
         // Increased from previous 0.0009 ETH based on diagnostic results
-        const fundAmount = "0.003";
+        const fundAmount = "0.0001";
         
         console.log("\n=== FUNDING CONTRACTS ===");
         await fundContract(baseChain, fundAmount);

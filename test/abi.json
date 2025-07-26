@@ -18,7 +18,7 @@
       },
       {
         "internalType": "address",
-        "name": "_lzEndpoint",
+        "name": "_endpoint",
         "type": "address"
       },
       {
@@ -176,6 +176,17 @@
       }
     ],
     "name": "InvalidOptionType",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes",
+        "name": "options",
+        "type": "bytes"
+      }
+    ],
+    "name": "InvalidOptions",
     "type": "error"
   },
   {
@@ -554,6 +565,36 @@
     "anonymous": false,
     "inputs": [
       {
+        "components": [
+          {
+            "internalType": "uint32",
+            "name": "eid",
+            "type": "uint32"
+          },
+          {
+            "internalType": "uint16",
+            "name": "msgType",
+            "type": "uint16"
+          },
+          {
+            "internalType": "bytes",
+            "name": "options",
+            "type": "bytes"
+          }
+        ],
+        "indexed": false,
+        "internalType": "struct EnforcedOptionParam[]",
+        "name": "_enforcedOptions",
+        "type": "tuple[]"
+      }
+    ],
+    "name": "EnforcedOptionSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
         "indexed": true,
         "internalType": "address",
         "name": "previousOwner",
@@ -903,6 +944,19 @@
   },
   {
     "inputs": [],
+    "name": "SYNC_MINT_STATUS_MSG",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "WRAPPED_S_TOKEN",
     "outputs": [
       {
@@ -912,6 +966,29 @@
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_user",
+        "type": "address"
+      },
+      {
+        "internalType": "uint8",
+        "name": "_poolId",
+        "type": "uint8"
+      },
+      {
+        "internalType": "bytes",
+        "name": "_options",
+        "type": "bytes"
+      }
+    ],
+    "name": "_notifyOtherChains",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -1012,6 +1089,35 @@
         "internalType": "uint256",
         "name": "",
         "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint32",
+        "name": "_eid",
+        "type": "uint32"
+      },
+      {
+        "internalType": "uint16",
+        "name": "_msgType",
+        "type": "uint16"
+      },
+      {
+        "internalType": "bytes",
+        "name": "_extraOptions",
+        "type": "bytes"
+      }
+    ],
+    "name": "combineOptions",
+    "outputs": [
+      {
+        "internalType": "bytes",
+        "name": "",
+        "type": "bytes"
       }
     ],
     "stateMutability": "view",
@@ -1123,6 +1229,30 @@
         "internalType": "contract ILayerZeroEndpointV2",
         "name": "",
         "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint32",
+        "name": "eid",
+        "type": "uint32"
+      },
+      {
+        "internalType": "uint16",
+        "name": "msgType",
+        "type": "uint16"
+      }
+    ],
+    "name": "enforcedOptions",
+    "outputs": [
+      {
+        "internalType": "bytes",
+        "name": "enforcedOption",
+        "type": "bytes"
       }
     ],
     "stateMutability": "view",
@@ -1380,6 +1510,11 @@
         "internalType": "uint8",
         "name": "_poolId",
         "type": "uint8"
+      },
+      {
+        "internalType": "bytes",
+        "name": "_options",
+        "type": "bytes"
       }
     ],
     "name": "mintFromPool",
@@ -1454,24 +1589,6 @@
       }
     ],
     "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "_user",
-        "type": "address"
-      },
-      {
-        "internalType": "uint8",
-        "name": "_poolId",
-        "type": "uint8"
-      }
-    ],
-    "name": "notifyOtherChainsExternal",
-    "outputs": [],
-    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -1564,6 +1681,47 @@
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "uint32",
+        "name": "_dstEid",
+        "type": "uint32"
+      },
+      {
+        "internalType": "bytes",
+        "name": "_message",
+        "type": "bytes"
+      },
+      {
+        "internalType": "bytes",
+        "name": "_options",
+        "type": "bytes"
+      }
+    ],
+    "name": "quoteSyncFee",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "nativeFee",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "lzTokenFee",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct MessagingFee",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "renounceOwnership",
     "outputs": [],
@@ -1623,6 +1781,36 @@
       }
     ],
     "name": "setDelegate",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint32",
+            "name": "eid",
+            "type": "uint32"
+          },
+          {
+            "internalType": "uint16",
+            "name": "msgType",
+            "type": "uint16"
+          },
+          {
+            "internalType": "bytes",
+            "name": "options",
+            "type": "bytes"
+          }
+        ],
+        "internalType": "struct EnforcedOptionParam[]",
+        "name": "_enforcedOptions",
+        "type": "tuple[]"
+      }
+    ],
+    "name": "setEnforcedOptions",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

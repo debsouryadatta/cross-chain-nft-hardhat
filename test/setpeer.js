@@ -33,14 +33,8 @@ async function set_peer(network, network2) {
    const targetContractAddress = Contract_Addresses[network2];
 
    try {
-    // Create the peer value using keccak256 hash of the encoded packed addresses
-    // This matches the contract's peer validation: bytes32 actualPeer = keccak256(abi.encodePacked(_origin.sender, address(this)))
-    const peerValue = ethers.keccak256(
-      ethers.solidityPacked(
-        ['address', 'address'],
-        [targetContractAddress, tokenAddress]
-      )
-    );
+    // Correctly format the peer address as bytes32, which is expected by the OApp setPeer function
+    const peerValue = ethers.zeroPadValue(targetContractAddress, 32);
     
     console.log(`Setting peer from ${network} (${tokenAddress}) to ${network2} (${targetContractAddress})`);
     console.log(`Destination EID: ${dstEid[network2]}, Peer Value: ${peerValue}`);
